@@ -1,0 +1,21 @@
+.gitignore 
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Local Codex metadata
+.codex
+
+# LaTeX auxiliary files
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# Keep the source and final report artifact
+!report/report.tex
+!report/report.pdf

@@ -1,0 +1,30 @@
+{
+  "phase_1_lexer": [
+    {
+      "line": 1,
+      "tokens": [
+        "LET",
+        "VAR_P",
+        "EQ",
+        "TRUE"
+      ]
+    },
+    {
+      "line": 2,
+      "tokens": [
+        "IF",
+        "L_PAREN",
+        "VAR_P",
+        "AND",
+        "R_PAREN",
+        "THEN",
+        "PRINT",
+        "VAR_P"
+      ]
+    }
+  ],
+  "error": {
+    "phase": "phase_2_parser",
+    "line": 2
+  }
+}

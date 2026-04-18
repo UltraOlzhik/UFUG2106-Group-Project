@@ -1,32 +1,163 @@
-\documentclass{article}
+\documentclass[11pt]{article}
 
 \usepackage[utf8]{inputenc}
-\usepackage{amsmath,amssymb,amsthm}
-\usepackage{mathtools}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{longtable}
+\usepackage{array}
 \geometry{margin=1in}
 
-\title{Discrete}
-\author{Olzhas}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
+\title{Technical Brief:\\The LogicScript Optimizing Compiler}
+\author{UFUG2106 Project Team}
 \date{\today}
 
 \begin{document}
 
 \maketitle
-\newpage
-\tableofcontents
-\newpage
+
+\section{Project Overview}
+This project implements a complete four-phase compiler pipeline for the LogicScript micro-language described in \texttt{UFUG2106-Project.pdf}. The system reads a multi-line source program, validates its lexical and syntactic structure, optimizes logical expressions using propositional equivalence laws, verifies each optimization with full truth tables, and executes the optimized program using a state dictionary. The final output is exported as a JSON trace so that an external grading script can inspect the result of each successful phase.
+
+The design follows the assignment structure directly. Each compiler phase is isolated in its own Python module: \texttt{phase\_1\_lexer.py}, \texttt{phase\_2\_parser.py}, \texttt{phase\_3\_optimizer.py}, and \texttt{phase\_4\_\\execution.py}. The main pipeline entry point is \texttt{main.py}, which coordinates the phases and produces the final JSON output. This modular organization made the project easier to reason about, easier to test, and easier to explain during implementation.
 
 \section{System Design}
-some content
+\subsection{Overall Pipeline}
+The compiler processes the input program in four sequential stages:
 
-\section{Testing suite}
-some content
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Lexical analysis}: convert each source line into a list of canonical tokens such as \texttt{LET}, \texttt{VAR\_P}, and \texttt{TRUE}.
+    \item \textbf{Parsing}: validate the recursive grammar and transform token lists into nested abstract syntax trees (ASTs).
+    \item \textbf{Optimization}: simplify AST expressions using logic laws without consulting runtime values.
+    \item \textbf{Verification and execution}: generate truth-table comparisons for changed expressions, then execute the optimized program with a state dictionary.
+\end{enumerate}
+
+The main driver stores the output of each successful phase in a Python dictionary. If any phase raises a controlled \texttt{CompilerError}, the pipeline stops immediately and writes the completed phases plus an \texttt{error} object containing the failing phase and source line. This behavior matches the assignment requirement that the compiler halt gracefully instead of producing a raw Python traceback.
+
+\subsection{Lexer Design}
+The lexer scans each non-empty source line and classifies each fragment according to the allowed LogicScript alphabet. It uses a regular expression to split the line into candidate pieces and then maps each piece through fixed token tables for symbols, keywords, booleans, and operators. If none of these categories match, the lexer checks whether the fragment is a valid single-letter lowercase variable. If the fragment is still unrecognized, the lexer raises a lexical error.
+
+The output data structure of phase 1 is a list of dictionaries with the form:
+\begin{quote}
+\texttt{\{"line": 3, "tokens": ["LET", "VAR\_R", "EQ", ...]\}}
+\end{quote}
+
+This representation preserves the original line number for later error reporting and JSON export.
+
+\subsection{Parser Design}
+The parser is implemented as a recursive-descent parser because the language grammar is recursive by definition. The helper class \texttt{TokenStream} stores the current token list, the current index, and the source line number. It provides controlled \texttt{current()} and \texttt{consume()} operations so the parser can enforce exact token order and give precise syntax errors.
+
+Expressions are parsed into nested prefix-style AST lists. For example:
+\begin{quote}
+\texttt{(NOT p)} becomes \texttt{["NOT", "VAR\_P"]}\\
+\texttt{(p OR T)} becomes \texttt{["OR", "VAR\_P", "TRUE"]}
+\end{quote}
+
+Statements are also represented as lists, such as:
+\begin{quote}
+\texttt{["LET", "VAR\_X", ["OR", "VAR\_P", "TRUE"]]}
+\end{quote}
+
+This AST representation is the core data structure of the project. It is simple enough to serialize into JSON-like output, but expressive enough to support recursive optimization and evaluation.
+
+\subsection{Optimizer Design}
+The optimizer performs static simplification only. It never looks up the runtime values of variables. Instead, it recursively rewrites expression trees using logical equivalence laws learned in propositional logic. This separation is important because optimization is a compile-time activity, while actual truth evaluation belongs to the execution phase.
+
+The optimizer is rule-driven rather than one long chain of nested conditionals. Unary rules are grouped for \texttt{NOT}, while binary simplification rules are grouped by operator. The implemented rules include:
+
+\begin{itemize}[leftmargin=*]
+    \item constant negation
+    \item double negation
+    \item De Morgan's laws
+    \item implication rewriting
+    \item domination laws
+    \item identity laws
+    \item idempotent laws
+    \item complement laws
+    \item absorption laws
+\end{itemize}
+
+The optimizer also records every original-versus-optimized expression pair that changed. These pairs are later used by phase 4 to build truth tables and prove that the rewrite preserved semantics.
+
+\subsection{Verification and Execution Design}
+Phase 4 has two responsibilities. First, it verifies that every optimized expression is logically equivalent to its original form. The verifier extracts all variables that occur in either expression, generates every possible truth assignment, evaluates both expressions under each assignment, and compares the resulting columns. If any pair is not equivalent, the compiler raises a phase 4 error instead of executing the program.
+
+Second, once verification succeeds, the execution engine runs the optimized AST statements line by line. Runtime information is stored in a Python dictionary that acts as the state environment:
+\begin{quote}
+\texttt{\{"VAR\_P": "TRUE", "VAR\_Q": "FALSE"\}}
+\end{quote}
+
+This dictionary is the key mathematical relation used during execution. Assignment statements update the dictionary, conditional statements inspect it indirectly by evaluating their condition, and print statements export values from it into the final output trace. All booleans are stored as the uppercase strings \texttt{"TRUE"} and \texttt{"FALSE"} to match the project specification exactly.
+
+\section{Testing Suite}
+The assignment requires test files that demonstrate both successful compilation and graceful failure. Our local test suite is implemented in \texttt{tests.py} and covers the following core scenarios.
+
+\subsection{Successful Compilation Case}
+The first test uses the same style of valid program shown in the assignment:
+\begin{quote}
+\texttt{let p = T}\\
+\texttt{let q = F}\\
+\texttt{let r = (NOT ((NOT p) AND q))}\\
+\texttt{if r then print p}
+\end{quote}
+
+This test checks the complete pipeline output, not only the final execution state. It asserts that:
+
+\begin{itemize}[leftmargin=*]
+    \item the lexer emits the expected tokens
+    \item the parser builds the expected ASTs
+    \item the optimizer rewrites the expression for \texttt{VAR\_R} into \texttt{["OR", "VAR\_P", ["NOT", "VAR\_Q"]]}
+    \item the verifier reports equivalent truth-table columns
+    \item the final state dictionary and printed output match the expected result
+\end{itemize}
+
+\subsection{Syntax Error Case}
+The second test checks whether the parser catches malformed expressions such as:
+\begin{quote}
+\texttt{if (p AND ) then print p}
+\end{quote}
+
+The expected behavior is that phase 1 succeeds, phase 2 fails, and the output JSON contains an \texttt{error} object with phase \texttt{phase\_2\_parser} and the correct line number. This confirms that the compiler stops at the right point and does not continue into optimization or execution.
+
+\subsection{Lexical Error Case}
+The third test checks whether the lexer rejects invalid characters such as \texttt{@}. In this situation, the compiler should halt immediately with a \texttt{phase\_1\_lexer} error. This confirms that unsupported source text is rejected before parsing begins.
+
+\subsection{Optimization Verification Case}
+The final test targets the optimization pass directly using a constant-folding example:
+\begin{quote}
+\texttt{let x = (p OR T)}
+\end{quote}
+
+The optimizer should simplify this expression to \texttt{TRUE}, and phase 4 should still produce a verification table showing that the original and optimized columns are identical. This test is important because it checks not only simplification, but also the mathematical safety net required by the assignment.
 
 \section{Limitations}
-some content
+The current implementation satisfies the required grammar and output format, but it has several known limitations.
+
+\begin{itemize}[leftmargin=*]
+    \item The language intentionally supports only the exact grammar from the assignment. It does not attempt to parse richer expressions, multi-character variables, or additional statement forms.
+    \item Truth-table verification is exponential in the number of variables, because every possible assignment must be tested. This is mathematically correct for the assignment, but not efficient for large formulas.
+    \item The optimizer includes a useful subset of simplification laws, but it is not a full symbolic theorem prover. It also intentionally avoids distributive expansion because the assignment explicitly says not to use the distributive law for simplification.
+    \item Execution assumes that variables must be assigned before they are used. Referencing an undefined variable correctly raises a controlled phase 4 error, but the system does not try to infer or repair missing assignments.
+    \item The testing suite is focused on correctness of representative cases rather than exhaustive combinatorial coverage of every possible valid and invalid input pattern.
+\end{itemize}
 
 \section{Collaboration}
-some content
+This project was organized around the natural separation of compiler phases. A practical team workflow is to divide ownership by phase while still reviewing the full pipeline together. For example, one member can focus on the lexer and parser, another on optimization rules, and another on verification, execution, and integration. This division keeps the work manageable while preserving shared understanding.
+
+To maintain consistency, the team should agree on the canonical AST format, token names, and error-reporting structure early in development. These shared interfaces are the contracts between phases, and once they are stable, parallel work becomes much easier. The modular file layout in this project reflects that approach directly.
+
+Regular integration and joint testing are also essential. A compiler is sensitive to small mismatches between phases, so collaboration cannot stop at dividing files. Team members need to verify that the parser output is what the optimizer expects, that the optimizer preserves a form the executor can evaluate, and that the exported JSON matches the grading requirements exactly. In that sense, the collaboration model for this project is not only about splitting responsibilities, but also about repeatedly recombining them into one coherent pipeline.
+
+\section{Conclusion}
+The LogicScript compiler demonstrates how ideas from discrete mathematics can be turned into a working software tool. Recursive definitions drive the parser, propositional equivalence laws guide optimization, and set-like variable environments support execution and verification. The final system is small, but it reflects the main structure of a real compiler: representation, transformation, proof of correctness, and controlled execution.
 
 \end{document}
