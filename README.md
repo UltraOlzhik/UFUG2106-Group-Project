@@ -68,15 +68,9 @@ group_project/
 │   ├── phase_3_optimizer.py
 │   ├── phase_4_execution.py
 │   └── tests.py
-├── report/
-│   ├── report.tex
-│   └── report.pdf
-└── transcript/
-    ├── overview.md
-    ├── 1_lexer.md
-    ├── 2_parser.md
-    ├── 3_optimizer.md
-    └── 4_executioner.md
+└── report/
+    ├── report.tex
+    └── report.pdf
 ```
 
 The `LogicScript/` directory contains the modular implementation of the compiler. The `report/` directory contains the technical brief in LaTeX and PDF form. The `transcript/` directory contains the working explanations used to prepare the final report.
