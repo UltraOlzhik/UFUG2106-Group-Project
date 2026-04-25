@@ -1,27 +1,29 @@
 from phase_1_lexer import CompilerError
 
+# Expression token categories.
 BOOLEAN_LITERALS = {"TRUE", "FALSE"}
 BINARY_OPERATORS = {"AND", "OR", "IMPLIES"}
 
 
+# Phase 1 variable format.
 def is_variable(token):
     return isinstance(token, str) and token.startswith("VAR_")
 
 
 class TokenStream:
-    # Store parser position and provide controlled token consumption helpers.
+    # Token list plus current read position.
     def __init__(self, tokens, line_number):
         self.tokens = tokens
         self.line_number = line_number
         self.position = 0
 
-    # Return the current token without consuming it.
+    # Look ahead without consuming.
     def current(self):
         if self.position < len(self.tokens):
             return self.tokens[self.position]
         return None
 
-    # Consume the current token, optionally checking for an expected value.
+    # Consume one token, optionally asserting its value.
     def consume(self, expected=None):
         token = self.current()
 
@@ -38,7 +40,7 @@ class TokenStream:
         self.position += 1
         return token
 
-    # Consume and return a variable token.
+    # Consume a variable token.
     def consume_variable(self):
         token = self.current()
         if not is_variable(token):
@@ -47,7 +49,7 @@ class TokenStream:
         return token
 
 
-# Parse one LogicScript expression into its nested AST form.
+# Parse one expression subtree.
 def parse_expression(stream):
     token = stream.current()
 
@@ -80,7 +82,7 @@ def parse_expression(stream):
     raise CompilerError("phase_2_parser", stream.line_number, "Invalid expression")
 
 
-# Parse one statement by dispatching to the matching statement parser.
+# Parse one statement node.
 def parse_statement(stream):
     token = stream.current()
     statement_parsers = {
@@ -96,7 +98,7 @@ def parse_statement(stream):
     raise CompilerError("phase_2_parser", stream.line_number, "Invalid statement")
 
 
-# Parse an assignment statement.
+# Parse `let <var> = <expr>`.
 def parse_let_statement(stream):
     stream.consume("LET")
     variable = stream.consume_variable()
@@ -105,7 +107,7 @@ def parse_let_statement(stream):
     return ["LET", variable, expression]
 
 
-# Parse a conditional statement with a nested child statement.
+# Parse `if <expr> then <statement>`.
 def parse_if_statement(stream):
     stream.consume("IF")
     condition = parse_expression(stream)
@@ -114,14 +116,14 @@ def parse_if_statement(stream):
     return ["IF", condition, statement]
 
 
-# Parse a print statement.
+# Parse `print <var>`.
 def parse_print_statement(stream):
     stream.consume("PRINT")
     variable = stream.consume_variable()
     return ["PRINT", variable]
 
 
-# Parse one full source line and ensure no trailing tokens remain.
+# Parse one full line.
 def parse_line(tokens, line_number):
     stream = TokenStream(tokens, line_number)
     ast = parse_statement(stream)
@@ -132,7 +134,7 @@ def parse_line(tokens, line_number):
     return ast
 
 
-# Parse every tokenized line and package the phase 2 output format.
+# Parse all tokenized lines.
 def run_parser(phase_1_output):
     phase_2_output = []
 

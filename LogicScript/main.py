@@ -7,13 +7,14 @@ from phase_3_optimizer import run_optimizer
 from phase_4_execution import run_execution
 
 
+# Phases with single-output signatures.
 PIPELINE_PHASES = [
     ("phase_1_lexer", run_lexer),
     ("phase_2_parser", run_parser),
 ]
 
 
-# Run the full compiler pipeline on already-loaded source lines.
+# Compile already-loaded source lines.
 def compile_source_lines(source_lines):
     result = {}
 
@@ -39,14 +40,14 @@ def compile_source_lines(source_lines):
         return result
 
 
-# Read a source file from disk and compile its contents.
+# Read a file and compile it.
 def compile_file(input_filename):
     with open(input_filename, "r", encoding="utf-8") as file:
         source_lines = file.readlines()
     return compile_source_lines(source_lines)
 
 
-# Parse command-line arguments and write the compiler trace JSON.
+# CLI entrypoint for the modular version.
 def main():
     if len(sys.argv) != 3:
         print("Usage: python main.py <input_file> <output_file>")

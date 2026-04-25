@@ -7,6 +7,9 @@ __pycache__/
 # Local Codex metadata
 .codex
 
+# Working notes not meant for submission
+transcript/
+
 # LaTeX auxiliary files
 *.aux
 *.fdb_latexmk
@@ -19,3 +22,6 @@ __pycache__/
 # Keep the source and final report artifact
 !report/report.tex
 !report/report.pdf
+
+# Generated report build directory
+report/build/

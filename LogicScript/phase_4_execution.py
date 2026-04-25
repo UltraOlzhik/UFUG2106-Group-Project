@@ -1,7 +1,7 @@
-from itertools import product
 from phase_1_lexer import CompilerError
 from phase_2_parser import is_variable
 
+# Truth functions for binary operators.
 EXPRESSION_EVALUATORS = {
     "AND": lambda left, right: "TRUE" if left == "TRUE" and right == "TRUE" else "FALSE",
     "OR": lambda left, right: "TRUE" if left == "TRUE" or right == "TRUE" else "FALSE",
@@ -9,7 +9,7 @@ EXPRESSION_EVALUATORS = {
 }
 
 
-# Collect all variable names that appear inside an expression tree.
+# Collect unique variables from an expression.
 def collect_variables(expr):
     if isinstance(expr, str):
         return {expr} if is_variable(expr) else set()
@@ -20,7 +20,28 @@ def collect_variables(expr):
     return collect_variables(expr[1]) | collect_variables(expr[2])
 
 
-# Evaluate one expression against the current state dictionary.
+# Generate truth-table rows in stable order.
+def generate_truth_assignments(variables):
+    if not variables:
+        return [{}]
+
+    rest_assignments = generate_truth_assignments(variables[:-1])
+    assignments = []
+    current_variable = variables[-1]
+
+    for assignment in rest_assignments:
+        true_assignment = assignment.copy()
+        true_assignment[current_variable] = "TRUE"
+        assignments.append(true_assignment)
+
+        false_assignment = assignment.copy()
+        false_assignment[current_variable] = "FALSE"
+        assignments.append(false_assignment)
+
+    return assignments
+
+
+# Evaluate an expression under one state.
 def eval_expression(expr, state, line_number):
     if expr == "TRUE":
         return "TRUE"
@@ -49,14 +70,13 @@ def eval_expression(expr, state, line_number):
     raise CompilerError("phase_4_execution", line_number, f"Unknown operator: {operator}")
 
 
-# Build a full truth-table comparison for an original and optimized expression.
+# Build one verification record.
 def build_verification(line_number, original_expr, optimized_expr):
     variables = sorted(collect_variables(original_expr) | collect_variables(optimized_expr))
     original_column = []
     optimized_column = []
 
-    for values in product(["TRUE", "FALSE"], repeat=len(variables)):
-        state = dict(zip(variables, values))
+    for state in generate_truth_assignments(variables):
         original_column.append(eval_expression(original_expr, state, line_number))
         optimized_column.append(eval_expression(optimized_expr, state, line_number))
 
@@ -69,7 +89,7 @@ def build_verification(line_number, original_expr, optimized_expr):
     }
 
 
-# Execute one statement by dispatching to the matching statement handler.
+# Execute one statement node.
 def execute_statement(statement, state, printed_output, line_number):
     handlers = {
         "LET": execute_let_statement,
@@ -85,12 +105,12 @@ def execute_statement(statement, state, printed_output, line_number):
     handler(statement, state, printed_output, line_number)
 
 
-# Evaluate an assignment and store the result in the state dictionary.
+# Execute a LET statement.
 def execute_let_statement(statement, state, _printed_output, line_number):
     state[statement[1]] = eval_expression(statement[2], state, line_number)
 
 
-# Record the value of a variable in the printed output trace.
+# Execute a PRINT statement.
 def execute_print_statement(statement, state, printed_output, line_number):
     variable = statement[1]
     if variable not in state:
@@ -101,14 +121,14 @@ def execute_print_statement(statement, state, printed_output, line_number):
     })
 
 
-# Execute the nested statement only when the IF condition is TRUE.
+# Execute an IF statement.
 def execute_if_statement(statement, state, printed_output, line_number):
     condition_value = eval_expression(statement[1], state, line_number)
     if condition_value == "TRUE":
         execute_statement(statement[2], state, printed_output, line_number)
 
 
-# Verify all optimizations and then execute the optimized program.
+# Verify first, then execute.
 def run_execution(phase_3_output, verification_pairs):
     verifications = []
 

@@ -1,4 +1,4 @@
-# Compare two AST fragments for structural equality.
+# Structural AST equality.
 def ast_equal(left, right):
     return left == right
 
@@ -18,7 +18,7 @@ def is_not(expr):
     return isinstance(expr, list) and len(expr) == 2 and expr[0] == "NOT"
 
 
-# Check whether an AST node is a binary expression, optionally for one operator.
+# Match `[op, left, right]`.
 def is_binary(expr, operator=None):
     if not (isinstance(expr, list) and len(expr) == 3):
         return False
@@ -32,14 +32,35 @@ def is_negation_of(left, right):
     return is_not(left) and ast_equal(left[1], right)
 
 
-# Check whether an expression matches an absorption-law pattern.
+# Match the inner absorption shape.
 def absorption_match(expr, target, absorbing_operator):
     return is_binary(expr, absorbing_operator) and (
         ast_equal(expr[1], target) or ast_equal(expr[2], target)
     )
 
 
-# Apply the first optimization rule that matches the given arguments.
+# Added by Bi Li: flatten associative chains.
+def collect_associative_operands(expr, operator):
+    if is_binary(expr, operator):
+        return (
+            collect_associative_operands(expr[1], operator)
+            + collect_associative_operands(expr[2], operator)
+        )
+    return [expr]
+
+
+# Added by Bi Li: rebuild into one canonical shape.
+def build_associative_expression(operator, operands):
+    if len(operands) == 1:
+        return operands[0]
+
+    result = operands[-1]
+    for operand in reversed(operands[:-1]):
+        result = [operator, operand, result]
+    return result
+
+
+# Return the first matching rule result.
 def apply_rule_list(*args, rules):
     for rule in rules:
         result = rule(*args)
@@ -78,13 +99,14 @@ def rule_de_morgan_or(child):
     return None
 
 
-# Rewrite NOT of an implication into an equivalent AND form.
+# Rewrite `NOT (A IMPLIES B)`.
 def rule_not_implies(child):
     if is_binary(child, "IMPLIES"):
         return optimize_expression(["AND", child[1], ["NOT", child[2]]])
     return None
 
 
+# Ordered NOT rules.
 NOT_RULES = [
     rule_not_constant,
     rule_double_negation,
@@ -126,7 +148,7 @@ def rule_or_identity(left, right):
     return None
 
 
-# Apply the idempotent law.
+# x OP x -> x
 def rule_idempotent(left, right):
     if ast_equal(left, right):
         return left
@@ -165,6 +187,27 @@ def rule_or_absorption(left, right):
     return None
 
 
+# Added by Bi Li: normalize nested AND chains.
+def rule_and_associative(left, right):
+    if is_binary(left, "AND") or is_binary(right, "AND"):
+        operands = collect_associative_operands(["AND", left, right], "AND")
+        rebuilt = build_associative_expression("AND", operands)
+        if not ast_equal(rebuilt, ["AND", left, right]):
+            return optimize_expression(rebuilt)
+    return None
+
+
+# Added by Bi Li: normalize nested OR chains.
+def rule_or_associative(left, right):
+    if is_binary(left, "OR") or is_binary(right, "OR"):
+        operands = collect_associative_operands(["OR", left, right], "OR")
+        rebuilt = build_associative_expression("OR", operands)
+        if not ast_equal(rebuilt, ["OR", left, right]):
+            return optimize_expression(rebuilt)
+    return None
+
+
+# Rules grouped by operator.
 BINARY_RULES = {
     "AND": [
         rule_and_domination,
@@ -172,6 +215,7 @@ BINARY_RULES = {
         rule_idempotent,
         rule_and_complement,
         rule_and_absorption,
+        rule_and_associative,
     ],
     "OR": [
         rule_or_domination,
@@ -179,16 +223,18 @@ BINARY_RULES = {
         rule_idempotent,
         rule_or_complement,
         rule_or_absorption,
+        rule_or_associative,
     ],
 }
 
 
+# Rewrite IMPLIES into core operators.
 REWRITE_RULES = {
     "IMPLIES": lambda left, right: ["OR", ["NOT", left], right],
 }
 
 
-# Optimize a unary NOT expression.
+# Optimize a NOT node after its child.
 def optimize_not_expression(child):
     optimized = apply_rule_list(child, rules=NOT_RULES)
     if optimized is not None:
@@ -196,7 +242,7 @@ def optimize_not_expression(child):
     return ["NOT", child]
 
 
-# Optimize a binary expression, including canonical rewrites such as IMPLIES.
+# Optimize one binary node.
 def optimize_binary_expression(operator, left, right):
     rewritten = REWRITE_RULES.get(operator)
     if rewritten is not None:
@@ -209,7 +255,7 @@ def optimize_binary_expression(operator, left, right):
     return [operator, left, right]
 
 
-# Recursively optimize one expression subtree.
+# Bottom-up expression optimization.
 def optimize_expression(expr):
     if not isinstance(expr, list):
         return expr
@@ -225,7 +271,7 @@ def optimize_expression(expr):
     return optimize_binary_expression(operator, left, right)
 
 
-# Optimize the expression parts inside a statement.
+# Optimize expressions inside one statement.
 def optimize_statement(statement):
     kind = statement[0]
 
@@ -238,7 +284,7 @@ def optimize_statement(statement):
     return statement[:]
 
 
-# Collect original and optimized expression pairs that need truth-table checking.
+# Collect changed expressions for Phase 4.
 def collect_verification_pairs(line_number, original_statement, optimized_statement):
     pairs = []
 
@@ -260,7 +306,7 @@ def collect_verification_pairs(line_number, original_statement, optimized_statem
     return pairs
 
 
-# Optimize every parsed statement and prepare phase 4 verification inputs.
+# Return optimized statements plus verification pairs.
 def run_optimizer(phase_2_output):
     phase_3_output = []
     verification_pairs = []
@@ -268,6 +314,7 @@ def run_optimizer(phase_2_output):
     for item in phase_2_output:
         line_number = item["line"]
         original_ast = item["ast"]
+
         optimized_ast = optimize_statement(original_ast)
 
         phase_3_output.append({

@@ -1,6 +1,7 @@
 from main import compile_source_lines
 
 
+# Full successful pipeline trace.
 def test_valid_program():
     program = [
         "let p = T\n",
@@ -80,6 +81,7 @@ def test_valid_program():
     assert result == expected
 
 
+# Parser error after successful lexing.
 def test_syntax_error():
     program = [
         "let p = T\n",
@@ -111,6 +113,7 @@ def test_syntax_error():
     assert result == expected
 
 
+# Lexer error before parsing.
 def test_lexical_error():
     program = [
         "let p = T\n",
@@ -124,6 +127,7 @@ def test_lexical_error():
     assert result == expected
 
 
+# Constant folding plus verification output.
 def test_constant_folding_verification():
     program = [
         "let p = T\n",
@@ -148,6 +152,7 @@ def test_constant_folding_verification():
     ]
 
 
+# Minimal local test runner.
 def run_all_tests():
     test_valid_program()
     test_syntax_error()

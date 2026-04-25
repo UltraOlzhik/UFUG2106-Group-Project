@@ -1,152 +1,34 @@
-# LogicScript Optimizing Compiler
+# LogicScript
+LogicScript is a boolean-typed language. It operates only on boolean values and boolean expressions. The compiler takes a `.txt` source file written in LogicScript syntax, validates it, optimizes it, verifies that the optimization is logically safe, and then executes the optimized program.
 
-This project implements the four-phase LogicScript compiler required in `UFUG2106-Project.pdf`. The compiler reads a LogicScript source file, validates it, builds an abstract syntax tree (AST), simplifies logical expressions using propositional equivalences, verifies that each optimization is logically safe with truth tables, and writes a structured JSON trace for grading.
+The compiler works in 4 phases:  
+phase 1. Tokenize each source line into a standardized token list. It reads the source file line by line and validates that every fragment belongs to the language,  
+phase 2. Parse tokens into a nested AST that follows the recursive grammar. It builds an abstract syntax tree (AST) for each statement,  
+phase 3. Optimize expressions without using runtime variable values. It simplifies logical expressions using propositional equivalences only,  
+phase 4. Verify each optimization by comparing truth-table outputs, then execute the optimized program with a state dictionary. It proves that each optimization is logically safe with truth tables, then writes a structured JSON trace.
 
-## Project Goal
-
-The assignment asks for a compiler pipeline for a custom micro-language called LogicScript. The pipeline must:
-
-1. Tokenize each source line into a standardized token list.
-2. Parse tokens into a nested AST that follows the recursive grammar.
-3. Optimize expressions without using runtime variable values.
-4. Verify each optimization by comparing truth-table outputs, then execute the optimized program with a state dictionary.
-
-The final output is a JSON file containing the successful phases and, if compilation succeeds, the execution trace. If a lexical, syntax, or execution error occurs, the pipeline stops cleanly and records the failing phase and source line.
-
-## Directory Structure
-
-`LogicScript/main.py`
-Main entry point and pipeline coordinator.
-
-`LogicScript/phase_1_lexer.py`
-Phase 1 tokenizer for the LogicScript lexicon.
-
-`LogicScript/phase_2_parser.py`
-Phase 2 recursive-descent parser that converts token lists into ASTs.
-
-`LogicScript/phase_3_optimizer.py`
-Phase 3 rule-based optimizer that simplifies expressions using logical laws.
-
-`LogicScript/phase_4_execution.py`
-Phase 4 verification and execution engine.
-
-`LogicScript/common.py`
-Shared token and operator helpers.
-
-`LogicScript/errors.py`
-Custom exception class used to stop the pipeline gracefully.
-
-`LogicScript/tests.py`
-Lightweight regression tests for valid programs and error handling.
-
-## LogicScript Language Summary
-
-### Valid keywords
-
-`let`, `if`, `then`, `print`
-
-### Valid boolean literals
-
-`T`, `F`
-
-### Valid logical operators
-
-`AND`, `OR`, `NOT`, `IMPLIES`
-
-### Valid symbols
-
-`=`, `(`, `)`
-
-### Valid variables
-
-Any single lowercase letter such as `p`, `q`, or `x`.
-
-## Compiler Design
-
-### Phase 1: Lexical Analysis
-
-The lexer scans each non-empty line and converts source text into canonical tokens such as `LET`, `VAR_P`, `TRUE`, `L_PAREN`, and `R_PAREN`.
-
-If an invalid character or unsupported word appears, the lexer raises a `CompilerError` with:
-
-- the failing phase: `phase_1_lexer`
-- the exact line number
-
-### Phase 2: Parsing and AST Generation
-
-The parser uses a recursive-descent strategy because the grammar itself is recursively defined. Expressions are converted into prefix-style nested Python lists, for example:
-
-```python
-["LET", "VAR_X", ["OR", "VAR_P", "TRUE"]]
-```
-
-This phase also validates syntax rules such as:
-
-- correct statement forms
-- required parentheses
-- valid operator placement
-- no extra trailing tokens
-
-### Phase 3: Static Optimization
-
-The optimizer traverses AST expressions recursively and applies logical equivalence laws without looking at runtime values stored in the state dictionary.
-
-Implemented simplifications include:
-
-- constant negation
-- double negation
-- De Morgan's laws
-- implication rewriting
-- domination laws
-- identity laws
-- idempotent laws
-- complement laws
-- absorption laws
-
-The optimizer is intentionally rule-driven so new logical laws can be added without rewriting the whole function.
-
-### Phase 4: Verification and Execution
-
-Before execution, every changed expression is checked by generating a complete truth table over all variables appearing in the original and optimized forms. If the result columns do not match, execution stops with a `phase_4_execution` error.
-
-If verification succeeds, the compiler executes the optimized statements line by line:
-
-- `LET` evaluates an expression and updates the state dictionary
-- `IF` evaluates a condition and executes the nested statement when the result is `TRUE`
-- `PRINT` records the current value of a variable in the output trace
-
-All boolean values in the JSON trace are stored as uppercase strings: `"TRUE"` or `"FALSE"`.
+The final output is a JSON file containing the successful phases and, if compilation succeeds, the verification and execution trace. If a lexical, syntax, or execution error occurs, the pipeline stops cleanly and records the failing phase and source line.
 
 ## How to Run
-
-Run the compiler from the `LogicScript` directory:
-
-```bash
-python main.py <input_file> <output_file>
-```
-
-Example:
+`logic_compiler.py` is the command-line entry point required by the assignment. It calls the compiler pipeline implemented in `LogicScript/main.py`, which in turn uses the four phase files in the directory. This keeps the project modular while still matching the grading format.
 
 ```bash
-cd LogicScript
-python main.py ../program.txt ../compiler_trace.json
+python logic_compiler.py <input_file> <output_file>
 ```
 
-The compiler reads the input file, processes it through all four phases, and writes the JSON trace to the output path you provide.
-
-## Example Input
-
+For example, if you have the following source file:
 ```text
 let p = T
 let q = F
 let r = (NOT ((NOT p) AND q))
 if r then print p
 ```
+you run the program with
+```bash
+python logic_compiler.py program123.txt program123_trace.json
+```
 
-## Example Output Shape
-
-For successful compilation, the JSON contains:
-
+The compiler then outputs a JSON trace file such as
 ```json
 {
   "phase_1_lexer": [...],
@@ -161,7 +43,6 @@ For successful compilation, the JSON contains:
 ```
 
 For a compilation error, the JSON contains the phases that completed successfully plus:
-
 ```json
 {
   "error": {
@@ -171,45 +52,81 @@ For a compilation error, the JSON contains the phases that completed successfull
 }
 ```
 
+## Implementation
+The project has the following directory structure:
+
+```text
+group_project/
+├── README.md
+├── logic_compiler.py
+├── program.txt
+├── compiler_trace.json
+├── LogicScript/
+│   ├── main.py
+│   ├── phase_1_lexer.py
+│   ├── phase_2_parser.py
+│   ├── phase_3_optimizer.py
+│   ├── phase_4_execution.py
+│   └── tests.py
+├── report/
+│   ├── report.tex
+│   └── report.pdf
+└── transcript/
+    ├── overview.md
+    ├── 1_lexer.md
+    ├── 2_parser.md
+    ├── 3_optimizer.md
+    └── 4_executioner.md
+```
+
+The `LogicScript/` directory contains the modular implementation of the compiler. The `report/` directory contains the technical brief in LaTeX and PDF form. The `transcript/` directory contains the working explanations used to prepare the final report.
+
+### LogicScript Language
+The language is intentionally simple. Variables are a priori of boolean type: `T` stands for boolean true and `F` stands for boolean false.
+
+Variable names can only be a single lowercase letter, for example `x`, `a`, `p`. LogicScript understands only the symbols `=`, `(`, `)`, the capitalized logical operators `AND`, `OR`, `NOT`, `IMPLIES`, and the keywords `let`, `if`, `then`, `print`.
+
+LogicScript uses the following statement forms:
+- `let` for assignments, for example `let x = T`
+- `print` for printing the value of a variable, for example `print x`
+- `if`, `then` for conditional statements, for example `if x then print y`
+
+Expressions follow the recursive grammar of the assignment:
+- base expressions: `T`, `F`, or a single variable
+- unary form: `(NOT E)`
+- binary forms: `(E1 AND E2)`, `(E1 OR E2)`, `(E1 IMPLIES E2)`
+
+So the language is fully parenthesized for recursive logical expressions. This keeps the grammar unambiguous and makes the recursive parser simpler.
+
+## Compiler Design
+This is a brief explanation. For more details, please refer to `report/report.pdf`.
+
+### Phase 1: Lexical Analysis
+The lexer scans each non-empty line and converts source text into canonical tokens such as `LET`, `VAR_P`, `TRUE`, `L_PAREN`, and `R_PAREN`. It uses fixed token tables together with a regular expression scanner. If a fragment does not belong to the LogicScript alphabet, the lexer raises `phase_1_lexer` with the exact source line.
+
+### Phase 2: Parsing and AST Generation
+The parser uses a recursive-descent strategy because the grammar itself is recursively defined. It converts token lists into prefix-style nested Python lists, for example `["LET", "VAR_X", ["OR", "VAR_P", "TRUE"]]`. If the token order does not follow the grammar, the parser stops and reports `phase_2_parser` with the failing source line.
+
+### Phase 3: Static Optimization
+The optimizer traverses AST expressions recursively and applies logical equivalence laws without looking at runtime values stored in the state dictionary. It uses rules such as constant folding, double negation, De Morgan's laws, complement, absorption, and implication rewriting. This phase is purely static and does not execute the program.
+
+### Phase 4: Verification and Execution
+Phase 4 first verifies every changed expression by building a full truth-table comparison between the original AST and the optimized AST. It then executes the optimized statements using a state dictionary and records the final variable values and printed output. All boolean values in the JSON trace are stored as uppercase strings: `"TRUE"` or `"FALSE"`.
+
 ## Testing
-
 Run the local regression tests from the `LogicScript` directory:
-
 ```bash
 python tests.py
 ```
 
 The current tests cover:
-
 - the successful example from the assignment
 - syntax error handling
 - lexical error handling
 - constant-folding verification output
 
-## Engineering Choices
-
-### Data structures
-
-- Tokens are stored as flat lists of canonical token strings.
-- Parsed statements are stored as nested lists to represent AST structure.
-- Runtime values are stored in a Python dictionary mapping variables like `VAR_P` to `"TRUE"` or `"FALSE"`.
-- Verification results are stored as JSON-friendly dictionaries for direct export.
-
-### Error handling
-
-The compiler uses a shared `CompilerError` class instead of letting Python crash with a traceback. This keeps the output aligned with the grading format.
-
-### Modularity
-
-Each phase lives in its own file so the pipeline is easy to inspect, test, and maintain. This also matches the assignment's four-phase structure directly.
-
-## Limitations
-
-- The language supports only the grammar specified in the assignment.
-- Variables must be a single lowercase letter in the source program.
-- The truth-table verifier is exponential in the number of variables, so very large expressions are not efficient.
-- The optimizer deliberately avoids distributive expansion because the assignment explicitly says not to use distributive law for simplification.
-
-## Collaboration Notes
-
-This codebase is organized so different teammates can work on separate compiler phases while still understanding the full pipeline. The separation between lexing, parsing, optimization, and execution makes it easier to explain responsibilities during the report and live demonstration.
+The tests are intentionally lightweight, but they check the main required behaviors of the pipeline:
+- successful end-to-end compilation
+- graceful failure on invalid syntax
+- graceful failure on invalid lexical input
+- correctness of at least one optimization together with truth-table verification

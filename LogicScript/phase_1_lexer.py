@@ -1,6 +1,7 @@
 import re
 
 
+# Shared compiler error shape.
 class CompilerError(Exception):
     def __init__(self, phase, line, message=""):
         self.phase = phase
@@ -8,29 +9,34 @@ class CompilerError(Exception):
         self.message = message
         super().__init__(f"{phase} at line {line}: {message}")
 
+# Reserved lexical categories.
 KEYWORDS = {"let": "LET", "if": "IF", "then": "THEN", "print": "PRINT"}
 BOOLEANS = {"T": "TRUE", "F": "FALSE"}
 OPERATORS = {"AND": "AND", "OR": "OR", "NOT": "NOT", "IMPLIES": "IMPLIES"}
 SYMBOLS = {"=": "EQ", "(": "L_PAREN", ")": "R_PAREN"}
+
+# Reserved tokens are checked before variables.
 TOKEN_MAPS = (SYMBOLS, KEYWORDS, BOOLEANS, OPERATORS)
 
+# Final "." keeps invalid characters visible.
 TOKEN_PATTERN = re.compile(r"\s+|[()]|=|[A-Za-z]+|.")
 
 
-# Convert one raw source fragment into its canonical token string.
+# Map one raw fragment to its token.
 def classify_token(piece):
     for token_map in TOKEN_MAPS:
         token = token_map.get(piece)
         if token is not None:
             return token
 
+    # Variables are single lowercase letters.
     if len(piece) == 1 and piece.islower():
         return f"VAR_{piece.upper()}"
 
     return None
 
 
-# Tokenize a single source line and report lexical errors with the line number.
+# Tokenize one source line.
 def tokenize_line(line_text, line_number):
     tokens = []
 
@@ -48,7 +54,7 @@ def tokenize_line(line_text, line_number):
     return tokens
 
 
-# Tokenize every non-empty line and package the phase 1 output format.
+# Tokenize all non-empty lines.
 def run_lexer(source_lines):
     phase_1_output = []
 

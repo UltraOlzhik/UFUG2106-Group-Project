@@ -4,17 +4,25 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{geometry}
-\usepackage{enumitem}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{longtable}
 \usepackage{array}
+\usepackage{listings}
+\usepackage{courier}
 \geometry{margin=1in}
 
 \hypersetup{
     colorlinks=true,
     linkcolor=blue,
     urlcolor=blue
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible
 }
 
 \title{Technical Brief:\\The LogicScript Optimizing Compiler}
@@ -26,138 +34,438 @@
 \maketitle
 
 \section{Project Overview}
-This project implements a complete four-phase compiler pipeline for the LogicScript micro-language described in \texttt{UFUG2106-Project.pdf}. The system reads a multi-line source program, validates its lexical and syntactic structure, optimizes logical expressions using propositional equivalence laws, verifies each optimization with full truth tables, and executes the optimized program using a state dictionary. The final output is exported as a JSON trace so that an external grading script can inspect the result of each successful phase.
+This project implements a complete four-phase compiler pipeline for the LogicScript micro-language described in \texttt{UFUG2106-Project.pdf}. The compiler reads a human-readable text program, validates it, optimizes its logical expressions, proves that the optimizations are safe, and then executes the optimized program. The final output is exported as a JSON trace so that the grading script can inspect every successful phase and, if necessary, the exact phase and line where compilation failed.
 
-The design follows the assignment structure directly. Each compiler phase is isolated in its own Python module: \texttt{phase\_1\_lexer.py}, \texttt{phase\_2\_parser.py}, \texttt{phase\_3\_optimizer.py}, and \texttt{phase\_4\_\\execution.py}. The main pipeline entry point is \texttt{main.py}, which coordinates the phases and produces the final JSON output. This modular organization made the project easier to reason about, easier to test, and easier to explain during implementation.
+The implementation follows the assignment structure directly. Each major compiler phase is isolated in its own Python file:
+\begin{itemize}
+    \item \texttt{phase\_1\_lexer.py}
+    \item \texttt{phase\_2\_parser.py}
+    \item \texttt{phase\_3\_optimizer.py}
+    \item \texttt{phase\_4\_execution.py}
+\end{itemize}
+The coordinator file \texttt{main.py} connects these modules into one full pipeline, while the root-level \texttt{logic\_compiler.py} provides the command-line interface required by the assignment.
+
+\section{Team Organization}
+The project was organized by compiler phase ownership, while still keeping the full pipeline jointly reviewed and integrated. Since each phase depends on the previous one, dividing work only by file was not enough; the team also had to maintain a shared understanding of the token format, AST structure, optimization output, and final JSON layout.
+
+\subsection{Bi Li}
+Bi Li was mainly responsible for the optimizer part of the compiler, that is the file \texttt{LogicScript/phase\_3\_optimizer.py}. He implemented and refined the logical simplification rules, including the associative normalization extension for nested \texttt{AND} and \texttt{OR} expressions. He also wrote a major part of the report and reviewed the overall consistency of the compiler design.
+
+\subsection{Olzhas Tilektes}
+Olzhas was mainly responsible for the lexer and parser parts of the compiler, that is the files \texttt{LogicScript/phase\_1\_lexer.py} and \texttt{LogicScript/phase\_2\_parser.py}. He worked on the tokenization rules, the recursive-descent parsing structure, and the overall integration of the early compiler pipeline. He also coordinated the project structure and edited files during integration.
+
+\subsection{Kenn Febrain Susmawanto}
+Kenn was mainly responsible for the verification and execution part of the compiler, that is the file \texttt{LogicScript/phase\_4\_execution.py}. He worked on truth-table verification, expression evaluation, execution with the state dictionary, and the final JSON trace generation. He also contributed to the project documentation, especially the README and submission materials.
+
+Even though the work was divided by phase, the final compiler required repeated joint checking. The parser output had to match what the optimizer expects, the optimizer had to preserve a structure that the executor can evaluate, and the final JSON format had to remain consistent with the grading requirements. Therefore the contributions were phase-based, but the final result was achieved collaboratively.
 
 \section{System Design}
 \subsection{Overall Pipeline}
 The compiler processes the input program in four sequential stages:
-
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Lexical analysis}: convert each source line into a list of canonical tokens such as \texttt{LET}, \texttt{VAR\_P}, and \texttt{TRUE}.
-    \item \textbf{Parsing}: validate the recursive grammar and transform token lists into nested abstract syntax trees (ASTs).
-    \item \textbf{Optimization}: simplify AST expressions using logic laws without consulting runtime values.
-    \item \textbf{Verification and execution}: generate truth-table comparisons for changed expressions, then execute the optimized program with a state dictionary.
+\begin{enumerate}
+    \item \textbf{Lexical analysis}: convert each source line into canonical tokens.
+    \item \textbf{Parsing}: validate the grammar and build nested AST lists.
+    \item \textbf{Optimization}: simplify AST expressions using propositional logic laws.
+    \item \textbf{Verification and execution}: prove changed expressions equivalent by truth table, then execute the optimized program.
 \end{enumerate}
 
-The main driver stores the output of each successful phase in a Python dictionary. If any phase raises a controlled \texttt{CompilerError}, the pipeline stops immediately and writes the completed phases plus an \texttt{error} object containing the failing phase and source line. This behavior matches the assignment requirement that the compiler halt gracefully instead of producing a raw Python traceback.
-
-\subsection{Lexer Design}
-The lexer scans each non-empty source line and classifies each fragment according to the allowed LogicScript alphabet. It uses a regular expression to split the line into candidate pieces and then maps each piece through fixed token tables for symbols, keywords, booleans, and operators. If none of these categories match, the lexer checks whether the fragment is a valid single-letter lowercase variable. If the fragment is still unrecognized, the lexer raises a lexical error.
-
-The output data structure of phase 1 is a list of dictionaries with the form:
-\begin{quote}
-\texttt{\{"line": 3, "tokens": ["LET", "VAR\_R", "EQ", ...]\}}
-\end{quote}
-
-This representation preserves the original line number for later error reporting and JSON export.
-
-\subsection{Parser Design}
-The parser is implemented as a recursive-descent parser because the language grammar is recursive by definition. The helper class \texttt{TokenStream} stores the current token list, the current index, and the source line number. It provides controlled \texttt{current()} and \texttt{consume()} operations so the parser can enforce exact token order and give precise syntax errors.
-
-Expressions are parsed into nested prefix-style AST lists. For example:
-\begin{quote}
-\texttt{(NOT p)} becomes \texttt{["NOT", "VAR\_P"]}\\
-\texttt{(p OR T)} becomes \texttt{["OR", "VAR\_P", "TRUE"]}
-\end{quote}
-
-Statements are also represented as lists, such as:
-\begin{quote}
-\texttt{["LET", "VAR\_X", ["OR", "VAR\_P", "TRUE"]]}
-\end{quote}
-
-This AST representation is the core data structure of the project. It is simple enough to serialize into JSON-like output, but expressive enough to support recursive optimization and evaluation.
-
-\subsection{Optimizer Design}
-The optimizer performs static simplification only. It never looks up the runtime values of variables. Instead, it recursively rewrites expression trees using logical equivalence laws learned in propositional logic. This separation is important because optimization is a compile-time activity, while actual truth evaluation belongs to the execution phase.
-
-The optimizer is rule-driven rather than one long chain of nested conditionals. Unary rules are grouped for \texttt{NOT}, while binary simplification rules are grouped by operator. The implemented rules include:
-
-\begin{itemize}[leftmargin=*]
-    \item constant negation
-    \item double negation
-    \item De Morgan's laws
-    \item implication rewriting
-    \item domination laws
-    \item identity laws
-    \item idempotent laws
-    \item complement laws
-    \item absorption laws
+The modular coordinator is \texttt{LogicScript/main.py}. If we treat the four phases as black boxes, then \texttt{main.py} is the file that connects them together in the correct order and collects their outputs into one final dictionary. It imports:
+\begin{itemize}
+    \item \texttt{run\_lexer} from phase 1
+    \item \texttt{run\_parser} from phase 2
+    \item \texttt{run\_optimizer} from phase 3
+    \item \texttt{run\_execution} from phase 4
+    \item \texttt{CompilerError} for graceful error handling
 \end{itemize}
 
-The optimizer also records every original-versus-optimized expression pair that changed. These pairs are later used by phase 4 to build truth tables and prove that the rewrite preserved semantics.
+The central function is \texttt{compile\_source\_lines(source\_lines)}. It:
+\begin{enumerate}
+    \item creates an empty result dictionary
+    \item runs phase 1 and stores \texttt{result["phase\_1\_lexer"]}
+    \item runs phase 2 and stores \texttt{result["phase\_2\_parser"]}
+    \item runs phase 3 and stores \texttt{result["phase\_3\_optimizer"]}
+    \item runs phase 4 and stores \texttt{result["phase\_4\_execution"]}
+    \item returns the full result dictionary
+\end{enumerate}
 
-\subsection{Verification and Execution Design}
-Phase 4 has two responsibilities. First, it verifies that every optimized expression is logically equivalent to its original form. The verifier extracts all variables that occur in either expression, generates every possible truth assignment, evaluates both expressions under each assignment, and compares the resulting columns. If any pair is not equivalent, the compiler raises a phase 4 error instead of executing the program.
+One important part of \texttt{main.py} is the error handling. The whole pipeline is wrapped in a \texttt{try/except CompilerError} block. If any phase fails, the compiler does not crash with a Python traceback. Instead, it returns the outputs of the successful earlier phases together with:
+\begin{lstlisting}[language=Python]
+"error": {
+    "phase": error.phase,
+    "line": error.line,
+}
+\end{lstlisting}
+This behavior matches the assignment requirement that the compiler halt gracefully and report the failing phase and line number.
 
-Second, once verification succeeds, the execution engine runs the optimized AST statements line by line. Runtime information is stored in a Python dictionary that acts as the state environment:
+\subsection{Phase 1: Lexer}
+The file \texttt{LogicScript/phase\_1\_lexer.py} handles the lexical part of the compilation. In other words, lexer reads the input plain text file and splits it into pieces. The task of the lexer is to create a dictionary of tokens which is later used for parsing in phase 2.
+
+For example, if an \texttt{input.txt} file contains:
 \begin{quote}
-\texttt{\{"VAR\_P": "TRUE", "VAR\_Q": "FALSE"\}}
+\texttt{let p = T}
+\end{quote}
+lexer returns tokens of the form:
+\begin{quote}
+\texttt{\{"line": 1, "tokens": ["LET", "VAR\_P", "EQ", "TRUE"]\}}
 \end{quote}
 
-This dictionary is the key mathematical relation used during execution. Assignment statements update the dictionary, conditional statements inspect it indirectly by evaluating their condition, and print statements export values from it into the final output trace. All booleans are stored as the uppercase strings \texttt{"TRUE"} and \texttt{"FALSE"} to match the project specification exactly.
+Lexer also catches lexical errors such as unconventional expressions:
+\begin{quote}
+\texttt{le tp = T}
+\end{quote}
+This causes a \texttt{CompilerError} because the separated piece \texttt{le} does not belong to the LogicScript alphabet.
+
+More precisely, lexer reads the file line-by-line and separates each line into pieces. A piece must belong to one of five lexical categories:
+\begin{enumerate}
+    \item booleans: \texttt{T}, \texttt{F}
+    \item variables: any single lowercase letter
+    \item symbols: \texttt{(}, \texttt{=}, \texttt{)}
+    \item operators: \texttt{NOT}, \texttt{AND}, \texttt{OR}, \texttt{IMPLIES}
+    \item keywords: \texttt{let}, \texttt{if}, \texttt{then}, \texttt{print}
+\end{enumerate}
+
+The file uses dictionaries to classify each reserved token:
+\begin{lstlisting}[language=Python]
+KEYWORDS = {"let": "LET", "if": "IF", "then": "THEN", "print": "PRINT"}
+BOOLEANS = {"T": "TRUE", "F": "FALSE"}
+OPERATORS = {"AND": "AND", "OR": "OR", "NOT": "NOT", "IMPLIES": "IMPLIES"}
+SYMBOLS = {"=": "EQ", "(": "L_PAREN", ")": "R_PAREN"}
+\end{lstlisting}
+
+It then uses a regular expression scanner:
+\begin{lstlisting}
+r"\s+|[()]|=|[A-Za-z]+|."
+\end{lstlisting}
+This regex separates whitespace, parentheses, equals signs, letter-runs, and any leftover single invalid character. The final \texttt{.} in the regex is important because it prevents illegal symbols from being silently skipped.
+
+The three main lexer functions are:
+\begin{itemize}
+    \item \texttt{classify\_token}: classify one piece
+    \item \texttt{tokenize\_line}: tokenize one line
+    \item \texttt{run\_lexer}: tokenize the whole source file
+\end{itemize}
+
+\subsection{Phase 2: Parser}
+The file \texttt{LogicScript/phase\_2\_parser.py} handles parsing after lexical analysis is completed. Parser reads the standardized tokens that were produced in phase 1 and checks whether they follow the recursive grammar of LogicScript. The task of the parser is to create a dictionary of ASTs which is later used for optimization in phase 3.
+
+For example, if lexer returned:
+\begin{quote}
+\texttt{\{"line": 1, "tokens": ["LET", "VAR\_P", "EQ", "TRUE"]\}}
+\end{quote}
+parser produces:
+\begin{quote}
+\texttt{\{"line": 1, "ast": ["LET", "VAR\_P", "TRUE"]\}}
+\end{quote}
+
+Parser also catches grammatical errors that are not lexical errors. For example:
+\begin{quote}
+\texttt{if (p AND ) then print p}
+\end{quote}
+is lexically valid but grammatically invalid, because after the binary operator \texttt{AND} there is no valid right-hand expression.
+
+Parser builds a nested list structure called the AST. In this representation, parentheses and \texttt{EQ} are removed, while the logical grouping is preserved directly by nested Python lists. The recursive grammar rules are:
+\begin{enumerate}
+    \item base expressions: \texttt{TRUE}, \texttt{FALSE}, variables
+    \item unary expressions: \texttt{(NOT E)}
+    \item binary expressions: \texttt{(E1 AND E2)}, \texttt{(E1 OR E2)}, \texttt{(E1 IMPLIES E2)}
+    \item statements: \texttt{let}, \texttt{if ... then ...}, \texttt{print}
+\end{enumerate}
+
+The parser is implemented as a recursive-descent parser. It uses two small helper sets:
+\begin{lstlisting}[language=Python]
+BOOLEAN_LITERALS = {"TRUE", "FALSE"}
+BINARY_OPERATORS = {"AND", "OR", "IMPLIES"}
+\end{lstlisting}
+and a helper function:
+\begin{lstlisting}[language=Python]
+def is_variable(token):
+    return isinstance(token, str) and token.startswith("VAR_")
+\end{lstlisting}
+
+The core data structure of phase 2 is the \texttt{TokenStream} class, which stores the token list, the source line number, and the current parser position. This class provides:
+\begin{itemize}
+    \item \texttt{current()} for lookahead
+    \item \texttt{consume()} for controlled token consumption
+    \item \texttt{consume\_variable()} for variable-only positions
+\end{itemize}
+
+The main recursive function is \texttt{parse\_expression(stream)}. It checks whether the current token starts a base expression or a parenthesized recursive expression, and then returns the corresponding AST. Statement parsing is handled by a dispatcher that maps the first token of the line to one of:
+\begin{itemize}
+    \item \texttt{parse\_let\_statement}
+    \item \texttt{parse\_if\_statement}
+    \item \texttt{parse\_print\_statement}
+\end{itemize}
+
+At the line level, parser uses \texttt{parse\_line(tokens, line\_number)} to ensure that one token list forms exactly one complete statement and contains no trailing unused tokens.
+
+\subsection{Phase 3: Optimizer}
+The file \texttt{LogicScript/phase\_3\_optimizer.py} handles optimization. Optimizer reads the ASTs produced in phase 2 and simplifies the logical expressions inside them. The task of the optimizer is to create optimized ASTs and also collect proof inputs for phase 4.
+
+For example, if parser returned:
+\begin{quote}
+\texttt{\{"line": 1, "ast": ["LET", "VAR\_X", ["OR", "VAR\_P", "TRUE"]]\}}
+\end{quote}
+optimizer returns:
+\begin{quote}
+\texttt{\{"line": 1, "ast": ["LET", "VAR\_X", "TRUE"]\}}
+\end{quote}
+
+Optimizer is a static pass. It does not execute the program and does not look at runtime values stored in the state dictionary. Instead, it recursively traverses each expression subtree and applies logical equivalence rules. It returns two outputs:
+\begin{lstlisting}[language=Python]
+phase_3_output = [
+    {"line": line_number, "ast": optimized_ast}
+]
+
+verification_pairs = [
+    (line_number, original_expr, optimized_expr)
+]
+\end{lstlisting}
+
+Only expression parts are optimized. Statement shapes are preserved:
+\begin{itemize}
+    \item \texttt{LET}: optimize only the right-hand expression
+    \item \texttt{IF}: optimize the condition and nested statement
+    \item \texttt{PRINT}: unchanged
+\end{itemize}
+
+The optimizer implements propositional logic laws such as:
+\begin{itemize}
+    \item constant folding
+    \item identity
+    \item double negation
+    \item De Morgan's laws
+    \item complement
+    \item absorption
+    \item implication rewriting
+\end{itemize}
+
+It is a rule-based optimizer, not a global Boolean minimizer. Therefore it does not guarantee the mathematically simplest possible equivalent expression in every case.
+
+The file uses several helper predicates such as:
+\begin{lstlisting}[language=Python]
+def is_true(expr):
+    return expr == "TRUE"
+
+def is_false(expr):
+    return expr == "FALSE"
+
+def is_not(expr):
+    return isinstance(expr, list) and len(expr) == 2 and expr[0] == "NOT"
+\end{lstlisting}
+and a more general binary matcher:
+\begin{lstlisting}[language=Python]
+def is_binary(expr, operator=None):
+    if not (isinstance(expr, list) and len(expr) == 3):
+        return False
+    if operator is None:
+        return True
+    return expr[0] == operator
+\end{lstlisting}
+
+Each logical law is implemented as an ordinary Python function. For example:
+\begin{lstlisting}[language=Python]
+def rule_and_identity(left, right):
+    if is_true(left):
+        return right
+    if is_true(right):
+        return left
+    return None
+\end{lstlisting}
+If a rule matches, it returns the simplified expression. Otherwise it returns \texttt{None}. Rules are tried in order using:
+\begin{lstlisting}[language=Python]
+def apply_rule_list(*args, rules):
+    for rule in rules:
+        result = rule(*args)
+        if result is not None:
+            return result
+    return None
+\end{lstlisting}
+
+The core recursive function is \texttt{optimize\_expression(expr)}, which works bottom-up: optimize the children first, then optimize the current node. This is why many multi-step simplifications can still occur even without a separate global fixed-point pass.
+
+One contribution added by Bi Li is the associative normalization for nested \texttt{AND} and \texttt{OR} chains. The helper functions \texttt{collect\_associative\_operands(...)} and \texttt{build\_associative\_expression(...)} flatten and rebuild equivalent chains into one canonical shape, which helps later laws such as absorption trigger more often.
+
+Finally, optimizer collects \texttt{(line\_number, original\_expr, optimized\_expr)} pairs for every changed expression. These pairs are then checked by phase 4.
+
+\subsection{Phase 4: Verification and Execution}
+The file \texttt{LogicScript/phase\_4\_execution.py} handles the final part of the compilation. Phase 4 reads the optimized ASTs produced in phase 3, proves that every optimization is logically safe, and then executes the optimized program. The task of this phase is to create the execution trace that later appears in the final JSON output.
+
+Phase 4 has two subparts:
+\begin{enumerate}
+    \item verification
+    \item execution
+\end{enumerate}
+
+Verification is the safety net of the compiler. Whenever optimizer changed an expression, phase 4 generates a full truth table for the original expression and the optimized expression. If the two output columns differ, phase 4 raises an error immediately.
+
+Execution then runs the optimized statements line-by-line using a state dictionary. This dictionary stores the current boolean value of each variable. Printed values are not written directly to standard output; instead they are stored in the structured JSON trace required by the assignment.
+
+The final return value has the form:
+\begin{lstlisting}[language=Python]
+{
+    "verifications": [...],
+    "final_state_dictionary": {...},
+    "printed_output": [...]
+}
+\end{lstlisting}
+
+The file uses two main ideas:
+\begin{enumerate}
+    \item recursive evaluation of AST expressions
+    \item recursive generation of all truth-table assignments
+\end{enumerate}
+
+Binary truth functions are stored in:
+\begin{lstlisting}[language=Python]
+EXPRESSION_EVALUATORS = {
+    "AND": lambda left, right: "TRUE" if left == "TRUE" and right == "TRUE" else "FALSE",
+    "OR": lambda left, right: "TRUE" if left == "TRUE" or right == "TRUE" else "FALSE",
+    "IMPLIES": lambda left, right: "FALSE" if left == "TRUE" and right == "FALSE" else "TRUE",
+}
+\end{lstlisting}
+
+To construct a truth table, phase 4 first collects the variables that appear in the expression tree:
+\begin{lstlisting}[language=Python]
+def collect_variables(expr):
+    if isinstance(expr, str):
+        return {expr} if is_variable(expr) else set()
+    if len(expr) == 2:
+        return collect_variables(expr[1])
+    return collect_variables(expr[1]) | collect_variables(expr[2])
+\end{lstlisting}
+It then generates all truth assignments recursively with \texttt{generate\_truth\_assignments(variables)}. If there are \(n\) variables, then \(2^n\) assignments are generated, which is exactly what a full truth table requires.
+
+The heart of both verification and execution is \texttt{eval\_expression(expr, state, line\_number)}. This function:
+\begin{itemize}
+    \item returns literals directly
+    \item looks up variables in the state dictionary
+    \item recursively evaluates \texttt{NOT}
+    \item recursively evaluates binary expressions and applies the correct truth function
+\end{itemize}
+
+After all verification pairs are proven equivalent, execution proceeds using three statement handlers:
+\begin{itemize}
+    \item \texttt{execute\_let\_statement}
+    \item \texttt{execute\_print\_statement}
+    \item \texttt{execute\_if\_statement}
+\end{itemize}
+
+Assignment updates the state dictionary, print appends a structured output record, and \texttt{IF} evaluates the condition and executes its nested statement only if the condition is \texttt{"TRUE"}.
 
 \section{Testing Suite}
-The assignment requires test files that demonstrate both successful compilation and graceful failure. Our local test suite is implemented in \texttt{tests.py} and covers the following core scenarios.
+The file \texttt{LogicScript/tests.py} contains the local testing suite of the project. It is intentionally simple and does not use an external testing framework. Instead it uses ordinary Python functions together with \texttt{assert} statements. This is sufficient for this project because the goal is to verify that the whole compiler pipeline behaves correctly on several representative inputs.
+
+The structure of the file is:
+\begin{enumerate}
+    \item import \texttt{compile\_source\_lines} from \texttt{main.py}
+    \item construct small LogicScript programs directly as Python lists of strings
+    \item run the full compiler in memory
+    \item compare the actual result with the expected result
+\end{enumerate}
 
 \subsection{Successful Compilation Case}
-The first test uses the same style of valid program shown in the assignment:
+The strongest end-to-end test is \texttt{test\_valid\_program()}, which uses the same successful example as the assignment:
 \begin{quote}
 \texttt{let p = T}\\
 \texttt{let q = F}\\
 \texttt{let r = (NOT ((NOT p) AND q))}\\
 \texttt{if r then print p}
 \end{quote}
-
-This test checks the complete pipeline output, not only the final execution state. It asserts that:
-
-\begin{itemize}[leftmargin=*]
-    \item the lexer emits the expected tokens
-    \item the parser builds the expected ASTs
-    \item the optimizer rewrites the expression for \texttt{VAR\_R} into \texttt{["OR", "VAR\_P", ["NOT", "VAR\_Q"]]}
-    \item the verifier reports equivalent truth-table columns
-    \item the final state dictionary and printed output match the expected result
+This test checks the exact outputs of all four phases:
+\begin{itemize}
+    \item token output of phase 1
+    \item AST output of phase 2
+    \item optimized AST output of phase 3
+    \item verification, final state dictionary, and printed output of phase 4
 \end{itemize}
 
 \subsection{Syntax Error Case}
-The second test checks whether the parser catches malformed expressions such as:
+The second test, \texttt{test\_syntax\_error()}, checks whether the compiler handles a grammatical error properly:
 \begin{quote}
+\texttt{let p = T}\\
 \texttt{if (p AND ) then print p}
 \end{quote}
-
-The expected behavior is that phase 1 succeeds, phase 2 fails, and the output JSON contains an \texttt{error} object with phase \texttt{phase\_2\_parser} and the correct line number. This confirms that the compiler stops at the right point and does not continue into optimization or execution.
+This line is lexically valid, so phase 1 should still succeed. However parser should detect that the binary operator \texttt{AND} has no valid right-hand expression after it. The expected result is:
+\begin{lstlisting}[language=Python]
+{"error": {"phase": "phase_2_parser", "line": 2}}
+\end{lstlisting}
 
 \subsection{Lexical Error Case}
-The third test checks whether the lexer rejects invalid characters such as \texttt{@}. In this situation, the compiler should halt immediately with a \texttt{phase\_1\_lexer} error. This confirms that unsupported source text is rejected before parsing begins.
+The third test, \texttt{test\_lexical\_error()}, checks whether phase 1 catches an invalid raw symbol:
+\begin{quote}
+\texttt{let p = T}\\
+\texttt{let q = @}
+\end{quote}
+Here the symbol \texttt{@} is not part of the LogicScript alphabet, so phase 1 must halt immediately and report:
+\begin{lstlisting}[language=Python]
+{"error": {"phase": "phase_1_lexer", "line": 2}}
+\end{lstlisting}
 
 \subsection{Optimization Verification Case}
-The final test targets the optimization pass directly using a constant-folding example:
+The fourth test, \texttt{test\_constant\_folding\_verification()}, focuses on a simple optimization:
 \begin{quote}
-\texttt{let x = (p OR T)}
+\texttt{let p = T}\\
+\texttt{let x = (p OR T)}\\
+\texttt{print x}
 \end{quote}
-
-The optimizer should simplify this expression to \texttt{TRUE}, and phase 4 should still produce a verification table showing that the original and optimized columns are identical. This test is important because it checks not only simplification, but also the mathematical safety net required by the assignment.
-
-\section{Limitations}
-The current implementation satisfies the required grammar and output format, but it has several known limitations.
-
-\begin{itemize}[leftmargin=*]
-    \item The language intentionally supports only the exact grammar from the assignment. It does not attempt to parse richer expressions, multi-character variables, or additional statement forms.
-    \item Truth-table verification is exponential in the number of variables, because every possible assignment must be tested. This is mathematically correct for the assignment, but not efficient for large formulas.
-    \item The optimizer includes a useful subset of simplification laws, but it is not a full symbolic theorem prover. It also intentionally avoids distributive expansion because the assignment explicitly says not to use the distributive law for simplification.
-    \item Execution assumes that variables must be assigned before they are used. Referencing an undefined variable correctly raises a controlled phase 4 error, but the system does not try to infer or repair missing assignments.
-    \item The testing suite is focused on correctness of representative cases rather than exhaustive combinatorial coverage of every possible valid and invalid input pattern.
+The expected behavior is:
+\begin{itemize}
+    \item phase 3 simplifies \texttt{(p OR T)} into \texttt{TRUE}
+    \item phase 4 records a verification object proving that the original and optimized expressions are equivalent
+    \item the printed result is \texttt{TRUE}
 \end{itemize}
 
-\section{Collaboration}
-This project was organized around the natural separation of compiler phases. A practical team workflow is to divide ownership by phase while still reviewing the full pipeline together. For example, one member can focus on the lexer and parser, another on optimization rules, and another on verification, execution, and integration. This division keeps the work manageable while preserving shared understanding.
+\subsection{What the Tests Show}
+The tests can be run from the \texttt{LogicScript} directory with:
+\begin{lstlisting}
+python tests.py
+\end{lstlisting}
+These tests are useful because they check:
+\begin{itemize}
+    \item successful end-to-end compilation
+    \item lexical error handling
+    \item syntax error handling
+    \item one optimization together with truth-table verification
+\end{itemize}
+At the same time, the current test suite is still limited. It does not yet cover every possible edge case, such as more complex optimizer interactions, additional undefined-variable execution failures, larger families of parser corner cases, and more cases for the associative optimization added in phase 3.
 
-To maintain consistency, the team should agree on the canonical AST format, token names, and error-reporting structure early in development. These shared interfaces are the contracts between phases, and once they are stable, parallel work becomes much easier. The modular file layout in this project reflects that approach directly.
+\section{Limitations}
+The language and compiler are intentionally simple, which makes them clear and suitable for the project requirements. However, this simplicity also creates several important limitations.
 
-Regular integration and joint testing are also essential. A compiler is sensitive to small mismatches between phases, so collaboration cannot stop at dividing files. Team members need to verify that the parser output is what the optimizer expects, that the optimizer preserves a form the executor can evaluate, and that the exported JSON matches the grading requirements exactly. In that sense, the collaboration model for this project is not only about splitting responsibilities, but also about repeatedly recombining them into one coherent pipeline.
+\subsection{Restricted Variable System}
+At the moment variables can only be single lowercase letters. This means the language supports at most 26 direct variable names such as \texttt{a}, \texttt{b}, \texttt{p}, and \texttt{x}. While this follows the project specification, it is restrictive from a usability point of view. A natural future improvement would be to let lexer accept longer identifier names such as words or alphanumeric variable names.
+
+\subsection{Verbose Parenthesized Syntax}
+LogicScript requires explicit parentheses for recursive expressions. Even a moderately simple formula may look like:
+\begin{quote}
+\texttt{let x = (((NOT a) AND b) OR c)}
+\end{quote}
+This is correct and unambiguous, but it is not very human-friendly. A future improvement could be to add precedence rules so that \texttt{NOT} binds tighter than \texttt{AND}, and \texttt{AND} binds tighter than \texttt{OR}. This would allow less cluttered expressions, but it would also require a significantly more complex parser.
+
+\subsection{Line-by-Line Parsing}
+The current parser assumes one full statement per line, which means formatting flexibility is low. For example, a user cannot write:
+\begin{quote}
+\texttt{let x = a AND}\\
+\texttt{\ \ \ \ \ \ \ \ (}\\
+\texttt{\ \ \ \ \ \ \ \ \ \ \ \ b}\\
+\texttt{\ \ \ \ \ \ \ \ )}
+\end{quote}
+The compiler would not treat this as one statement. This is not a problem for the required project grammar, but it limits readability and scalability. Supporting multi-line statements would require redesigning how the compiler groups lines before parsing.
+
+\subsection{Rule-Based Optimization}
+The optimizer is rule-based, which means it applies only the specific logical equivalence rules that were explicitly implemented. This is enough for many useful simplifications, but it does not guarantee the mathematically simplest equivalent expression in every case.
+
+For example, consider:
+\begin{quote}
+\texttt{let x = ((NOT p) AND ((NOT q) AND (NOT r)))}\\
+\texttt{let y = (p OR (q AND r))}\\
+\texttt{let z = (x OR y)}
+\end{quote}
+The optimizer can simplify many local patterns, but it may still leave an expression in a non-minimal form if the simplification would require more global Boolean reasoning. In principle, stronger minimization methods such as Karnaugh maps or Quine-McCluskey tables could reduce some expressions further. However, these methods are considerably more complex and go beyond the intended scope of the current project.
+
+Therefore, the current compiler should be understood as a correct and structured educational compiler, not as a fully general Boolean minimization system. Its main strength is clarity, modularity, and alignment with the course concepts of recursion, propositional logic, and state relations.
 
 \section{Conclusion}
-The LogicScript compiler demonstrates how ideas from discrete mathematics can be turned into a working software tool. Recursive definitions drive the parser, propositional equivalence laws guide optimization, and set-like variable environments support execution and verification. The final system is small, but it reflects the main structure of a real compiler: representation, transformation, proof of correctness, and controlled execution.
+The LogicScript compiler demonstrates how ideas from discrete mathematics can be turned into a working software tool. Recursive definitions drive the parser, propositional equivalence laws guide optimization, and state dictionaries support both execution and verification. The final system is small, but it reflects the main structure of a real compiler: representation, transformation, proof of correctness, and controlled execution.
 
 \end{document}
