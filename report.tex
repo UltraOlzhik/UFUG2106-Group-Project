@@ -1,0 +1,137 @@
+\documentclass[10pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=0.68in]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{ragged2e}
+\usepackage{hyperref}
+\usepackage{setspace}
+\setstretch{0.96}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.20em}
+\setlength{\tabcolsep}{4pt}
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
+\title{Design and Implementation of the LogicScript Optimizing Compiler}
+\author{Bi Li \and Olzhas Tilektes \and Ken Febrian Susmawanto}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.2em}
+
+\section{Overview}
+LogicScript is a small compiler for propositional programs with assignment, conditional execution, and printing. The program is processed in four required phases: lexical analysis, parsing, optimization, and verification with execution. Each phase reads the output of the previous phase and returns a more processed representation. The final result is stored as the required JSON trace with the exact phase names, line numbers, final state dictionary, truth-table verification records, and captured print outputs.
+
+The whole pipeline is coordinated by \texttt{compile\_source\_lines(...)} in \texttt{logic\_compiler.py}. This function calls the four phases in order and collects their outputs into one dictionary. If any phase raises \texttt{CompilerError}, the pipeline stops gracefully and records the phase and line number of the error instead of producing a Python traceback. The implementation is based on three discrete-mathematical ideas: recursive definitions for parsing, propositional equivalence for optimization, and relations from variables to truth values during execution.
+
+The submitted work addresses the main code and report criteria in the rubric. For implementation correctness, the compiler runs as a command-line tool, reads an input file, writes an output JSON file, rejects invalid lexical and syntax forms, handles runtime undefined-variable errors, and verifies every changed expression before execution. For code quality and documentation, the code is organized by phase, uses descriptive helper functions and comments, and is supported by a README and a local regression test suite. For the report criteria, this brief explains the system design, the applied mathematical concepts, the testing suite, the limitations, and the collaboration model.
+
+\section{Team}
+The work was divided by compiler phase. Olzhas Tilektes (contribution 10/10) wrote the main body of the code. Bi Li (contribution 10/10) mainly worked on optimization and report preparation. Ken Febrian Susmawanto (contribution 10/10) mainly worked on verification, execution, and documentation. All three parts still required joint integration, review, and shared understanding of the whole compiler pipeline, especially because the live demonstration and Q\&A require every member to explain how the phases connect.
+
+\section{Phase 1. Lexical Analysis}
+The Phase 1 section of \texttt{logic\_compiler.py} handles lexical analysis. The lexer reads the input file line by line, ignores blank lines while preserving real source line numbers, splits each non-empty line into pieces, and converts each piece into a standardized token. This directly satisfies the project requirement that the compiler translate terminal symbols into the exact token strings used by the automated grader.
+
+The output of this phase is a list of dictionaries that becomes the input of the parser. Each dictionary stores the original line number and the token list. The lexer catches invalid symbols, unsupported words, uppercase variables, multi-letter identifiers, and empty programs. For example, if the source line is \texttt{let p = T}, the lexer returns \texttt{["LET", "VAR\_P", "EQ", "TRUE"]}. If the line contains an invalid piece such as \texttt{@}, it raises \texttt{CompilerError} and halts on that line.
+
+\begin{center}
+\begin{tabular}{L{0.22\textwidth} L{0.26\textwidth} L{0.40\textwidth}}
+\toprule
+Category & Accepted piece & Produced token \\
+\midrule
+Boolean & \texttt{T}, \texttt{F} & \texttt{TRUE}, \texttt{FALSE} \\
+Variable & one lowercase letter, e.g. \texttt{p} & \texttt{VAR\_P} \\
+Symbol & \texttt{(}, \texttt{=}, \texttt{)} & \texttt{L\_PAREN}, \texttt{EQ}, \texttt{R\_PAREN} \\
+Operator & \texttt{NOT}, \texttt{AND}, \texttt{OR}, \texttt{IMPLIES} & same token name \\
+Keyword & \texttt{let}, \texttt{if}, \texttt{then}, \texttt{print} & \texttt{LET}, \texttt{IF}, \texttt{THEN}, \texttt{PRINT} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Phase 2. Parser}
+The Phase 2 section of \texttt{logic\_compiler.py} handles syntax validation and AST generation. The parser reads the standardized tokens from Phase 1 and checks whether they follow the recursive grammar of LogicScript. It uses a recursive-descent method and catches grammatical errors that were not caught by the lexer, such as missing operands, missing \texttt{then}, mismatched parentheses, and extra tokens after a statement.
+
+The main data structures of this phase are the token list produced by Phase 1, the \texttt{TokenStream} object that stores the current reading position, and the nested-list AST in prefix form. This design directly follows the recursive definition of expressions: base cases return literals or variables, while recursive cases consume parenthesized \texttt{NOT}, \texttt{AND}, \texttt{OR}, and \texttt{IMPLIES} expressions. For example, \texttt{["LET", "VAR\_P", "EQ", "TRUE"]} becomes \texttt{["LET", "VAR\_P", "TRUE"]}, and \texttt{(p AND q)} becomes \texttt{["AND", "VAR\_P", "VAR\_Q"]}.
+
+\begin{center}
+\begin{tabular}{L{0.30\textwidth} L{0.60\textwidth}}
+\toprule
+Grammar part & Accepted form \\
+\midrule
+Base expression & \texttt{TRUE}, \texttt{FALSE}, or a variable token such as \texttt{VAR\_P} \\
+Unary expression & \texttt{(NOT E)} \\
+Binary expression & \texttt{(E1 AND E2)}, \texttt{(E1 OR E2)}, \texttt{(E1 IMPLIES E2)} \\
+Assignment statement & \texttt{let variable = expression} \\
+Conditional statement & \texttt{if expression then statement} \\
+Print statement & \texttt{print variable} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Phase 3. Optimizer}
+The Phase 3 section of \texttt{logic\_compiler.py} handles optimization. The optimizer reads the ASTs produced in Phase 2 and simplifies the logical expressions inside statements without changing the statement structure. The function \texttt{optimize\_expression(...)} traverses each expression bottom-up and rewrites it using propositional equivalence laws. This phase is static: it does not execute the program, does not inspect the state dictionary, and does not substitute runtime truth values for variables.
+
+For example, \texttt{["LET", "VAR\_X", ["OR", "VAR\_P", "TRUE"]]} becomes \texttt{["LET", "VAR\_X", "TRUE"]} by the universal bound law. The optimizer also records original and optimized expression pairs so that Phase 4 can prove the rewrite is logically safe before execution. One improvement added in this phase is associative normalization for \texttt{AND} and \texttt{OR}. Nested chains such as \texttt{["AND", ["AND", A, B], C]} can be flattened and rebuilt in a uniform shape. This does not use the distributive law, so it respects the project rule against expanding the syntax tree.
+
+\begin{center}
+\begin{tabular}{L{0.28\textwidth} L{0.29\textwidth} L{0.29\textwidth}}
+\toprule
+Law & Before & After \\
+\midrule
+Constant folding / bound & \texttt{(p OR TRUE)} & \texttt{TRUE} \\
+Identity & \texttt{(p AND TRUE)} & \texttt{p} \\
+Double negation & \texttt{NOT (NOT p)} & \texttt{p} \\
+De Morgan & \texttt{NOT (p AND q)} & \texttt{((NOT p) OR (NOT q))} \\
+Complement & \texttt{(p OR (NOT p))} & \texttt{TRUE} \\
+Absorption & \texttt{(p OR (p AND q))} & \texttt{p} \\
+Implication rewrite & \texttt{(p IMPLIES q)} & \texttt{((NOT p) OR q)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Phase 4. Verification and Execution}
+The Phase 4 section of \texttt{logic\_compiler.py} handles the final part of the compilation. This phase first proves that every optimization made in Phase 3 is logically equivalent. Only after the proof succeeds does it execute the optimized program and build the final JSON trace.
+
+To verify equivalence, Phase 4 generates a complete truth table for each changed expression over all variables appearing in the original or optimized AST. It stores the tested variables, the original-result column, the optimized-result column, and the string result \texttt{"TRUE"} or \texttt{"FALSE"} for \texttt{is\_equivalent}. If any columns differ, the compiler raises \texttt{CompilerError} in \texttt{phase\_4\_execution}. This is the safety net required by the project brief.
+
+After verification succeeds, Phase 4 executes the optimized statements using a state dictionary. This dictionary is the runtime relation from variable tokens to truth-value strings, for example \texttt{VAR\_P -> TRUE}. Assignment statements update the relation, conditional statements execute their nested statement only when the condition evaluates to \texttt{TRUE}, and print statements append their result to the captured \texttt{printed\_output} list. All truth values in the JSON trace are uppercase strings, not native Python booleans.
+
+\section{Testing}
+The testing stage focuses on concrete source files and their corresponding outputs. The goal is to show that the compiler accepts valid programs, catches lexical errors, catches syntax errors, catches runtime errors, preserves line numbers, and preserves correctness after optimization. The regression suite in \texttt{tests.py} uses standard Python assertions, so it can be run with \texttt{python tests.py} without external dependencies.
+
+The current tests cover the official-style successful compilation trace, command-line JSON output, empty and blank programs, invalid symbols, uppercase variables, multi-letter identifiers, missing operands, missing \texttt{then}, mismatched parentheses, extra tokens, missing parentheses around binary expressions, blank-line line-number preservation, undefined-variable runtime errors, false and true conditionals, nested conditionals, static optimizer behavior, and specific optimization rules such as complement, absorption, double negation, implication, and De Morgan rewrites. This supports the rubric's code-correctness and error-handling requirements because the tests exercise both standard cases and edge cases.
+
+\begin{center}
+\begin{tabular}{L{0.20\textwidth} L{0.30\textwidth} L{0.24\textwidth} L{0.18\textwidth}}
+\toprule
+\textbf{Test Case} & \textbf{Input} & \textbf{Observed Result} & \textbf{Purpose} \\
+\midrule
+Successful Compilation & \ttfamily let p = T \newline let q = F \newline let r = (NOT ((NOT p) AND q)) \newline if r then print p & \ttfamily phase\_4\_execution \newline printed\_output = TRUE \newline VAR\_R = TRUE & Confirms that all four phases execute correctly. \\
+Lexical Error & \ttfamily let p = @ & \ttfamily phase\_1\_lexer \newline line = 1 & Confirms invalid symbols are detected immediately. \\
+Syntax Error & \ttfamily if (p AND ) then print p & \ttfamily phase\_2\_parser \newline line = 1 & Confirms malformed expressions are rejected. \\
+Runtime Error & \ttfamily print p & \ttfamily phase\_4\_execution \newline line = 1 & Confirms undefined variables are rejected. \\
+Optimization Check & \ttfamily let x = (p OR T) & \ttfamily phase\_3 output: \newline let x = TRUE & Confirms static logical simplification. \\
+CLI Output & \ttfamily python logic\_compiler.py program.txt trace.json & \ttfamily JSON trace file created & Confirms command-line deliverable format. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Limitations}
+The first limitation is the syntax itself. LogicScript is still verbose and the available statement forms are primitive. The user must write many parentheses even for a moderate expression, for example \texttt{let x = ((NOT a) AND b)}. A natural improvement would be to add operator precedence, richer statement forms, and more built-in logical functions.
+
+The second limitation is the optimizer. It applies only the equivalence rules that were explicitly written in the file. Because of this, the optimizer does not always produce the simplest possible form. For example, an expression such as \texttt{((p AND q) AND ((NOT p) OR (NOT q)))} is logically false, but a rule-based local simplifier may fail to reduce it all the way to \texttt{FALSE}. A stronger improvement would be to use a more global Boolean minimization method such as Karnaugh-map style reduction or Quine-McCluskey minimization.
+
+The third limitation is the verification method. At the moment verification is done by complete truth-table enumeration. If an expression contains \(n\) variables, the file must test \(2^n\) assignments. This guarantees correctness, but the runtime cost can grow too quickly as the expression becomes larger. A stronger verification strategy could combine symbolic reasoning with simplification, or use structural proof methods that avoid checking every assignment.
+
+Overall, the compiler shows how recursive definitions support parsing, propositional logic supports optimization, and relational state models support execution. The final submission also includes the required codebase, README instructions, technical brief, and test suite evidence for successful compilation as well as lexical, syntax, and runtime error handling.
+
+\end{document}

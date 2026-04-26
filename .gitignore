@@ -1,14 +1,16 @@
-.gitignore 
-
 # Python cache files
 __pycache__/
 *.py[cod]
 
 # Local Codex metadata
 .codex
+.codex/
+**/.codex
+**/.codex/
 
-# Working notes not meant for submission
+# Local working notes
 transcript/
+report/docs.md
 
 # LaTeX auxiliary files
 *.aux
@@ -19,9 +21,14 @@ transcript/
 *.synctex.gz
 *.toc
 
-# Keep the source and final report artifact
-!report/report.tex
-!report/report.pdf
-
-# Generated report build directory
+# Optional local report build directory
 report/build/
+
+# Local snapshot archives
+*.zip
+
+# Local alternate project copy
+LogicScript_A_plus_updates/
+
+# Local backup copy
+archive/
