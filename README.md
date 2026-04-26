@@ -73,7 +73,7 @@ group_project/
     └── report.pdf
 ```
 
-The `LogicScript/` directory contains the modular implementation of the compiler. The `report/` directory contains the technical brief in LaTeX and PDF form. The `transcript/` directory contains the working explanations used to prepare the final report.
+The `LogicScript/` directory contains the modular implementation of the compiler. The `report/` directory contains the technical brief in LaTeX and PDF form.
 
 ### LogicScript Language
 The language is intentionally simple. Variables are a priori of boolean type: `T` stands for boolean true and `F` stands for boolean false.
